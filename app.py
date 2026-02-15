@@ -20,11 +20,10 @@ try:
     MT_USER = st.secrets["MIKROTIK_USER"]
     MT_PASS = st.secrets["MIKROTIK_PASS"]
     MT_PORT = int(st.secrets["MIKROTIK_PORT"])
-    # Masukkan Chat ID kamu di Secrets Streamlit dengan nama "AUTHORIZED_ID"
-    AUTH_ID = int(st.secrets["AUTHORIZED_ID"]) 
+    AUTH_ID = int(st.secrets["AUTHORIZED_ID"])
     st.success("✅ Secrets & Whitelist Loaded!")
 except Exception as e:
-    st.error(f"❌ Cek Secrets: AUTHORIZED_ID ({MT_PORT}) atau TOKEN mungkin salah!")
+    st.error(f"❌ Cek Secrets: {e}")
     st.stop()
 
 # State Conversation
@@ -41,17 +40,12 @@ def connect_mt():
         return pool
     except: return None
 
-def generate_code(prefix, length=6):
-    chars = string.ascii_letters + string.digits
-    return f"{prefix}{''.join(random.choice(chars) for _ in range(length))}"
-
 # --- HANDLER START ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Validasi ID agar hanya kamu yang bisa akses
     if update.effective_user.id != AUTH_ID:
-        await update.message.reply_text(f"❌ Akses Ditolak. ID anda: {update.effective_user.id}")
+        await update.message.reply_text(f"❌ Akses Ditolak. ID: {update.effective_user.id}")
         return
-
+    
     user_name = update.effective_user.first_name
     keyboard = [
         ['📝 DHCP Leases', '🔌 Interfaces'], 
@@ -60,41 +54,39 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ['📡 PING DARI IP', '⚙️ System Info']
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    welcome = (f"<b>🚀 NOC SYSTEM ONLINE v3.1</b>\n"
+    welcome = (f"<b>🚀 NOC SYSTEM ONLINE v3.5</b>\n"
                f"<b>PT AURI STEEL METALINDO</b>\n"
                f"<code>──────────────────────────────</code>\n"
                f"Halo, <b>{user_name}</b>!\n"
-               f"Status: 🟢 <b>Koneksi Privat Aktif</b>\n"
+               f"Status: 🟢 <b>Connected (Streamlit)</b>\n"
                f"<code>──────────────────────────────</code>")
     await update.message.reply_text(welcome, reply_markup=reply_markup, parse_mode='HTML')
 
-# --- LOGIKA MENU UTAMA ---
+# --- LOGIKA MENU UTAMA (KAGA ADA YANG DIHAPUS) ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != AUTH_ID: return # Lock ID
-    
+    if update.effective_user.id != AUTH_ID: return
     text = update.message.text
     pool = connect_mt()
     if not pool:
-        await update.message.reply_text("❌ <b>MikroTik Offline!</b> Cek Port API di Winbox.", parse_mode='HTML')
+        await update.message.reply_text("❌ <b>MikroTik Gagal Konek!</b>")
         return
     api = pool.get_api()
 
     if text == '🚀 Speedtest WAN':
-        sent_msg = await update.message.reply_text("🚀 <b>Testing Biznet (PPPoE)...</b>", parse_mode='HTML')
+        sent_msg = await update.message.reply_text("🚀 <b>Testing...</b>")
         wan, rx_s = "pppoe-out1", []
-        for i in range(1, 11):
+        for i in range(1, 6):
             try:
                 stats = api.get_resource('/interface').call('monitor-traffic', {'interface': wan, 'once': ''})[0]
                 rx_s.append(int(stats.get('rx-bits-per-second', 0))/1024/1024)
-                await context.bot.edit_message_text(chat_id=update.message.chat_id, message_id=sent_msg.message_id, text=f"🚀 <b>Loading... {i*10}%</b>", parse_mode='HTML')
             except: pass
             await asyncio.sleep(1)
-        await context.bot.edit_message_text(chat_id=update.message.chat_id, message_id=sent_msg.message_id, text=f"<b>✅ DL Max: {max(rx_s):.2f} Mbps</b>", parse_mode='HTML')
+        await context.bot.edit_message_text(chat_id=update.message.chat_id, message_id=sent_msg.message_id, text=f"✅ DL Max: {max(rx_s):.2f} Mbps")
 
     elif text == '📝 DHCP Leases':
         kb = [[InlineKeyboardButton("📡 LAN (1.x)", callback_data="ls_range_192.168.1."), InlineKeyboardButton("📡 WIFI (11.x)", callback_data="ls_range_172.16.11.")],
               [InlineKeyboardButton("📡 CCTV (50.x)", callback_data="ls_range_192.168.50."), InlineKeyboardButton("📡 PUB (10.x)", callback_data="ls_range_10.10.10.")],
-              [InlineKeyboardButton("📡 LOG (100.x)", callback_data="ls_range_10.10.100.")]]
+              [InlineKeyboardButton("📡 LOG (100.x)", callback_data="ls_range_10.10.100.")] ]
         await update.message.reply_text("<b>📝 DHCP 5 SEGMENT</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
     elif text == '🔌 Interfaces':
@@ -102,21 +94,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = [[InlineKeyboardButton(f"{'✅' if i.get('disabled')=='false' else '❌'} {i.get('name')}", callback_data=f"intset_{'dis' if i.get('disabled')=='false' else 'en'}_{i.get('name')}")] for i in ints[:10]]
         await update.message.reply_text("<b>🔌 INTERFACE CONTROL</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
-    pool.disconnect()
-
-# --- CALLBACK HANDLER ---
-async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != AUTH_ID: return # Lock ID
-    query = update.callback_query; await query.answer(); data = query.data.split('_')
-    pool = connect_mt(); api = pool.get_api() if pool else None
-    if not api: return
-
-    if data[0] == "ls":
-        all_l = api.get_resource('/ip/dhcp-server/lease').call('print')
-        fil = [l for l in all_l if l.get('address', '').startswith(data[2])]
-        msg = f"<b>📝 LEASES: {data[2]}x</b>\n"
-        for l in fil[:10]: msg += f"• {l.get('address')} | {l.get('host-name','?')}\n"
-        await query.edit_message_text(msg, parse_mode='HTML')
     pool.disconnect()
 
 # --- RUN BOT ---
@@ -127,13 +104,14 @@ def run_bot():
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(CallbackQueryHandler(lambda u, c: None)) # Dummy untuk callback
     
-    app.run_polling(drop_pending_updates=True)
+    # Drop pending updates ini kunci buat nge-clear antrean nyangkut!
+    app.run_polling(drop_pending_updates=True, close_loop=False)
 
 if __name__ == '__main__':
     if "bot_active" not in st.session_state:
         st.session_state.bot_active = True
         t = threading.Thread(target=run_bot, daemon=True)
         t.start()
-    st.write("🟢 Server Privat Aktif. Gunakan ID Anda untuk akses.")
+    st.write("🟢 Server NOC Siap Melayani!")
