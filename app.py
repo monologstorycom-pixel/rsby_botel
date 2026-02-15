@@ -6,12 +6,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import routeros_api
 
 # --- DASHBOARD WEB STREAMLIT ---
-st.set_page_config(page_title="NOC Master PT Auri V6.5", page_icon="📡")
+st.set_page_config(page_title="NOC Master PT Auri V7", page_icon="📡")
 st.title("📡 NOC Bot Dashboard")
 st.subheader("PT AURI STEEL METALINDO")
-
-# Container Log buat Debugging di web
-debug_box = st.empty()
 
 # --- KONFIGURASI SECRETS ---
 try:
@@ -26,15 +23,20 @@ except Exception as e:
     st.error(f"❌ Secrets Error: {e}")
     st.stop()
 
+# --- FUNGSI KONEKSI (FIXED: NO TIMEOUT ARGUMENT) ---
 def connect_mt():
     try:
+        # Gue hapus 'timeout' yang bikin error tadi Qi
         pool = routeros_api.RouterOsApiPool(
-            MT_HOST, username=MT_USER, password=MT_PASS, port=MT_PORT, 
-            plaintext_login=True, timeout=10
+            MT_HOST, 
+            username=MT_USER, 
+            password=MT_PASS, 
+            port=MT_PORT, 
+            plaintext_login=True
         )
         return pool
     except Exception as e:
-        st.session_state.last_error = str(e) # Catat errornya
+        st.session_state.last_error = str(e)
         return None
 
 # --- HANDLER START ---
@@ -50,20 +52,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ['📡 PING DARI IP', '⚙️ System Info']
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    welcome = (f"<b>🚀 NOC SYSTEM ONLINE v6.5</b>\n"
+    welcome = (f"<b>🚀 NOC SYSTEM ONLINE v7.0</b>\n"
                f"Halo <b>{update.effective_user.first_name}</b>!\n"
-               f"Status: 🟢 <b>Polling V6.5 Active</b>")
+               f"Status: 🟢 <b>Polling V7 Active</b>")
     await update.message.reply_text(welcome, reply_markup=reply_markup, parse_mode='HTML')
 
-# --- LOGIKA MENU (UTUH SEMUA) ---
+# --- LOGIKA MENU UTAMA (UTUH SEMUA) ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != AUTH_ID: return
     text = update.message.text
     pool = connect_mt()
     
     if not pool:
-        err = st.session_state.get('last_error', 'Unknown Error')
-        await update.message.reply_text(f"❌ <b>MikroTik Gagal Konek!</b>\nError: <code>{err}</code>", parse_mode='HTML')
+        err_msg = st.session_state.get('last_error', 'Koneksi Ditolak Router')
+        await update.message.reply_text(f"❌ <b>MikroTik Gagal Konek!</b>\nDetail: <code>{err_msg}</code>", parse_mode='HTML')
         return
     
     api = pool.get_api()
@@ -79,9 +81,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats = api.get_resource('/interface').call('monitor-traffic', {'interface': 'pppoe-out1', 'once': ''})[0]
         speed = int(stats.get('rx-bits-per-second', 0))/1024/1024
         await msg.edit_text(f"✅ Download: {speed:.2f} Mbps")
-    
-    # ... (Menu Interfaces, Hotspot, Cari IP, Ping kaga ada yang dihapus, tetap di sini)
-    
+
+    elif text == '🔌 Interfaces':
+        ints = api.get_resource('/interface').call('print')
+        kb = [[InlineKeyboardButton(f"{'✅' if i.get('disabled')=='false' else '❌'} {i.get('name')}", callback_data=f"intset_{i.get('name')}")] for i in ints[:8]]
+        await update.message.reply_text("<b>🔌 PORT CONTROL</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+
     pool.disconnect()
 
 # --- RUN BOT ---
@@ -98,7 +103,4 @@ if __name__ == '__main__':
     if "bot_started" not in st.session_state:
         st.session_state.bot_started = True
         threading.Thread(target=lambda: asyncio.run(run_bot_async()), daemon=True).start()
-    
-    st.success("🟢 Bot Polling V6.5 Active!")
-    if st.session_state.get('last_error'):
-        st.error(f"Pesan Error Terakhir: {st.session_state.last_error}")
+    st.success("🟢 Bot Polling V7 Active!")
