@@ -12,19 +12,17 @@ import routeros_api
 st.set_page_config(page_title="NOC Bot Dashboard", page_icon="📡")
 st.title("📡 NOC Bot Server")
 st.subheader("PT AURI STEEL METALINDO")
-st.write("Status Server: 🟢 **Running**")
-st.info("Bot sedang aktif. Data akses MikroTik diamankan via Streamlit Secrets.")
 
-# --- KONFIGURASI AMAN (RAHASIA) ---
-# Data ini nanti diisi di Dashboard Streamlit Cloud (Settings > Secrets)
+# --- KONFIGURASI AMAN (MENGAMBIL DARI SECRETS) ---
 try:
     TOKEN = st.secrets["TELEGRAM_TOKEN"]
     MT_HOST = st.secrets["MIKROTIK_HOST"]
     MT_USER = st.secrets["MIKROTIK_USER"]
     MT_PASS = st.secrets["MIKROTIK_PASS"]
     MT_PORT = int(st.secrets["MIKROTIK_PORT"])
+    st.success("✅ Konfigurasi Secrets Berhasil Dimuat")
 except Exception as e:
-    st.error("❌ Secrets belum diatur di Streamlit Dashboard!")
+    st.error("❌ Secrets Error: Pastikan TELEGRAM_TOKEN, MIKROTIK_HOST, dll sudah diisi di Dashboard Streamlit!")
     st.stop()
 
 # State Conversation
@@ -52,8 +50,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     welcome = (f"<b>🚀 NOC SYSTEM ONLINE v3.0</b>\n<b>PT AURI STEEL METALINDO</b>\n"
                f"<code>──────────────────────────────</code>\n"
-               f"Halo, <b>{user_name}</b>!\nNode: 🖥️ <b>RB450Gx4</b>\n"
-               f"Status: 🟢 <b>Public Access Enabled</b>\n"
+               f"Halo, <b>{user_name}</b>!\nNode: 🖥️ <b>RB450Gx4 (Streamlit)</b>\n"
+               f"Status: 🟢 <b>Semua Fitur Aktif</b>\n"
                f"<code>──────────────────────────────</code>")
     await update.message.reply_text(welcome, reply_markup=reply_markup, parse_mode='HTML')
 
@@ -85,12 +83,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = [[InlineKeyboardButton("📡 1.x (LAN)", callback_data="ls_range_192.168.1."), InlineKeyboardButton("📡 11.x (WIFI)", callback_data="ls_range_172.16.11.")],
               [InlineKeyboardButton("📡 50.x (CCTV)", callback_data="ls_range_192.168.50."), InlineKeyboardButton("📡 10.x (PUBLIC)", callback_data="ls_range_10.10.10.")],
               [InlineKeyboardButton("📡 100.x (LOGIN)", callback_data="ls_range_10.10.100.")]]
-        await update.message.reply_text("<b>📝 PILIH SEGMENT IP (Full 5 Segment)</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        await update.message.reply_text("<b>📝 DHCP LEASES (5 SEGMENT)</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
     elif text == '🔑 Hotspot MGMT':
-        kb = [[InlineKeyboardButton("➕ VOUCHER", callback_data="hs_gen_start"), InlineKeyboardButton("👤 MANUAL", callback_data="hs_man_start")],
+        kb = [[InlineKeyboardButton("➕ GEN VOUCHER", callback_data="hs_gen_start"), InlineKeyboardButton("👤 ADD MANUAL", callback_data="hs_man_start")],
               [InlineKeyboardButton("👥 USER AKTIF", callback_data="hs_active")]]
-        await update.message.reply_text("<b>🔑 HOTSPOT MANAGEMENT</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
+        await update.message.reply_text("<b>🔑 HOTSPOT MGMT</b>", reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
 
     elif text == '🛡️ Queues Limit':
         queues = api.get_resource('/queue/simple').call('print')
@@ -100,7 +98,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif text == '⚙️ System Info':
         res = api.get_resource('/system/resource').call('print')[0]
-        msg = f"<b>⚙️ SYSTEM INFO</b>\nBoard: {res.get('board-name')}\nCPU: {res.get('cpu-load')}% \nUptime: {res.get('uptime')}"
+        msg = f"<b>⚙️ INFO SYSTEM</b>\nCPU: {res.get('cpu-load')}% \nUptime: {res.get('uptime')}"
         await update.message.reply_text(msg, parse_mode='HTML')
     pool.disconnect()
 
@@ -109,7 +107,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pool = connect_mt(); api = pool.get_api()
     if query.data == "int_view":
         ints = api.get_resource('/interface').call('print')
-        msg = "<b>👁️ INTERFACE STATUS</b>\n"
+        msg = "<b>👁️ STATUS PORT</b>\n"
         for i in ints: msg += f"• <code>{i.get('name'):<10}</code>: {'✅' if i.get('disabled')=='false' else '❌'}\n"
         await query.edit_message_text(msg, parse_mode='HTML')
     elif query.data == "int_manage":
@@ -127,13 +125,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(msg, parse_mode='HTML')
     elif query.data == "hs_active":
         active = api.get_resource('/ip/hotspot/active').call('print')
-        msg = "<b>👥 USER AKTIF</b>\n"
+        msg = "<b>👥 AKTIF</b>\n"
         for u in active[:10]: msg += f"• {u.get('user')}\n"
         await query.edit_message_text(msg, parse_mode='HTML')
     pool.disconnect()
 
 # --- CONVERSATIONS ---
-async def search_ip_start(u, c): await u.message.reply_text("<b>🔍 CARI IP GLOBAL</b>\nKetik IP-nya:"); return SEARCH_IP
+async def search_ip_start(u, c): await u.message.reply_text("<b>🔍 CARI IP:</b>"); return SEARCH_IP
 async def do_search_ip(u, c):
     q = u.message.text; pool = connect_mt(); api = pool.get_api()
     res = [l for l in api.get_resource('/ip/dhcp-server/lease').call('print') if q in l.get('address','')]
@@ -141,17 +139,17 @@ async def do_search_ip(u, c):
     for r in res[:5]: msg += f"• {r.get('address')} | {r.get('host-name','?')}\n"
     await u.message.reply_text(msg if res else "Tidak ditemukan", parse_mode='HTML'); pool.disconnect(); return ConversationHandler.END
 
-async def ping_start(u, c): await u.message.reply_text("<b>📡 CUSTOM PING TEST</b>\nKetik IP source:"); return PING_TARGET
+async def ping_start(u, c): await u.message.reply_text("<b>📡 PING DARI IP:</b>\nKetik source IP:"); return PING_TARGET
 async def do_ping_test(u, c):
     ip = u.message.text; pool = connect_mt(); api = pool.get_api()
     try:
         res = api.get_binary_resource('/').call('ping', {'address': '8.8.8.8', 'src-address': ip, 'count': '5'})
-        msg = f"<b>🌐 PING DARI {ip} ke Google</b>\n"
+        msg = f"<b>🌐 PING DARI {ip}</b>\n"
         for p in res: msg += f"{'✅' if int(p.get('received',1))>0 else '❌'} <code>{p.get('time','timeout')}</code>\n"
         await u.message.reply_text(msg, parse_mode='HTML')
     finally: pool.disconnect(); return ConversationHandler.END
 
-async def gen_start(u, c): await u.callback_query.edit_message_text("<b>⌨️ PREFIX VOUCHER:</b>"); return PREFIX
+async def gen_start(u, c): await u.callback_query.edit_message_text("<b>⌨️ PREFIX:</b>"); return PREFIX
 async def get_prefix(u, c): c.user_data['prefix'] = u.message.text; return PROFILE
 async def get_profile(u, c): 
     c.user_data['profile'] = u.callback_query.data.replace('prof_',''); await u.callback_query.edit_message_text("<b>🔢 JUMLAH:</b>"); return QTY
@@ -195,8 +193,10 @@ def run_bot():
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.run_polling()
 
+# --- STREAMLIT THREADING ---
 if __name__ == '__main__':
     if "bot_running" not in st.session_state:
         st.session_state.bot_running = True
         thread = threading.Thread(target=run_bot, daemon=True)
         thread.start()
+        st.info("🟢 Bot Thread Active")
